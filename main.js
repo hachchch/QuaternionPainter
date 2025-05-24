@@ -1,3 +1,6 @@
+var movemode=false;
+var pen=new quaternion(1,0,0,0);
+var m=new vector(0,0,0);
 const obj=[];
 function generateVertex(obj){
     const res=[];
@@ -54,7 +57,7 @@ struct VertexOutput {
 @vertex
 fn main(@location(0) position: vec4<f32>,@location(1) color: vec4<f32>) -> VertexOutput {
   var output : VertexOutput;
-  output.Position = uniforms.projectionMatrix*uniforms.translateMatrix*uniforms.rotationMatrix*position;
+  output.Position = uniforms.projectionMatrix*uniforms.rotationMatrix*(uniforms.translateMatrix*position);
   output.fragColor = color;  
   return output;
 }
@@ -141,7 +144,7 @@ const uniformBufferSize = 4*16*3;
 });
 var bufferPosition=0;
 //透視投影変換行列を与える。
-const p=createBuffer(mat4.perspectiveMatrix(4*Math.PI/5,1,100,1));
+const p=createBuffer(mat4.perspectiveMatrix(4*Math.PI/5,1,100,0.5));
 g_device.queue.writeBuffer(
   uniformBuffer,
   //バッファのバイト位置
@@ -156,7 +159,10 @@ g_device.queue.writeBuffer(
 bufferPosition+=p.byteLength;
 
 //回転行列を与える。
-const R=createBuffer(mat.prod(mat.rotationMatrix(4,[3,4],angle.xy),mat.prod(mat.rotationMatrix(4,[2,4],angle.xz),mat.rotationMatrix(4,[1,4],angle.yz))));
+const Rxy=mat.rotationMatrix(4,[3,4],angle.xy);
+const Ryz=mat.rotationMatrix(4,[1,4],angle.yz);
+const Rxz=mat.rotationMatrix(4,[2,4],angle.xz);
+const R=createBuffer(mat.prod(Rxz,mat.prod(Ryz,Rxy)));
 g_device.queue.writeBuffer(
   uniformBuffer,
   //バッファのバイト位置
@@ -300,7 +306,43 @@ const textureView = context.getCurrentTexture().createView();
 main();
 var key="";
 window.addEventListener("keydown",e=>{
+    if(movemode && (e.code=="KeyW" || e.code=="KeyA" || e.code=="KeyS" || e.code=="KeyD" || e.code=="Space" || e.code=="ShiftLeft")){
+        function pointerMove(v){
+            m=vec3.sum(m,v);
+            for(const o of obj){
+                if(o.name=="pointer"){
+                    o.vertex=move(o.vertex,v);
+                }
+            }
+        }
+        if(e.code=="KeyW"){
+            pointerMove(new vector(0,0,1));
+        }
+        if(e.code=="KeyA"){
+            pointerMove(new vector(1,0,0));
+        }
+        if(e.code=="KeyS"){
+            pointerMove(new vector(0,0,-1));
+        }
+        if(e.code=="KeyD"){
+            pointerMove(new vector(-1,0,0));
+        }
+        if(e.code=="Space"){
+            pointerMove(new vector(0,-1,0));
+        }
+        if(e.code=="ShiftLeft"){
+            pointerMove(new vector(0,1,0));
+        }
+    }else{
+        if(e.code=="KeyQ"){
+            movemode=!movemode;
+        }else{
     key=e.code;
+            if(key=="KeyZ"){
+                cube(m.x,m.y,m.z,1,1,1,[Math.random(),Math.random(),Math.random()]);
+            }
+        }
+    }
 });
 window.addEventListener("keyup",e=>{
     key="";
@@ -309,22 +351,34 @@ window.addEventListener("keyup",e=>{
 function translate(){
     const cv=camera.velocity/60;
     if(key=="KeyW"){
-        camera.position.z-=cv;
+        let v=mat.rotate(vec.array(mat.rotate(vec.array(mat.rotate([0,0,-1],[2],-angle.xz)),[1],-angle.yz)),[3],-angle.xy);
+        v=vec3.prod(v,cv);
+        camera.position=vec3.sum(camera.position,v);
     }
     if(key=="KeyA"){
-        camera.position.x-=cv;
+        let v=mat.rotate(vec.array(mat.rotate(vec.array(mat.rotate([-1,0,0],[2],-angle.xz)),[1],-angle.yz)),[3],-angle.xy);
+        v=vec3.prod(v,cv);
+        camera.position=vec3.sum(camera.position,v);
     }
     if(key=="KeyS"){
-        camera.position.z+=cv;
+        let v=mat.rotate(vec.array(mat.rotate(vec.array(mat.rotate([0,0,1],[2],-angle.xz)),[1],-angle.yz)),[3],-angle.xy);
+        v=vec3.prod(v,cv);
+        camera.position=vec3.sum(camera.position,v);
     }
     if(key=="KeyD"){
-        camera.position.x+=cv;
+        let v=mat.rotate(vec.array(mat.rotate(vec.array(mat.rotate([1,0,0],[2],-angle.xz)),[1],-angle.yz)),[3],-angle.xy);
+        v=vec3.prod(v,cv);
+        camera.position=vec3.sum(camera.position,v);
     }
-    if(key=="KeyE"){
-        camera.position.y+=cv;
+    if(key=="ShiftLeft"){
+        let v=mat.rotate(vec.array(mat.rotate(vec.array(mat.rotate([0,-1,0],[2],-angle.xz)),[1],-angle.yz)),[3],-angle.xy);
+        v=vec3.prod(v,cv);
+        camera.position=vec3.sum(camera.position,v);
     }
-    if(key=="KeyQ"){
-        camera.position.y-=cv;
+    if(key=="Space"){
+        let v=mat.rotate(vec.array(mat.rotate(vec.array(mat.rotate([0,1,0],[2],-angle.xz)),[1],-angle.yz)),[3],-angle.xy);
+        v=vec3.prod(v,cv);
+        camera.position=vec3.sum(camera.position,v);
     }
     if(key=="KeyI"){
         angle.xy+=0.1;
@@ -332,11 +386,32 @@ function translate(){
     if(key=="KeyO"){
         angle.xz+=0.1;
     }
+    if(key=="ArrowLeft"){
+        angle.xz+=0.05;
+    }
+    if(key=="ArrowRight"){
+        angle.xz-=0.05;
+    }
+    if(key=="ArrowUp"){
+        angle.xy+=0.05*Math.sin(angle.xz);
+        angle.yz-=0.05*Math.cos(angle.xz);
+    }
+    if(key=="ArrowDown"){
+        angle.xy-=0.05*Math.sin(angle.xz);
+        angle.yz+=0.05*Math.cos(angle.xz);
+    }
+    if(key=="ShiftRight"){
+        angle.xy=0;
+    }
     if(key=="KeyP"){
         angle.yz+=0.1;
     }
+    behave();
 }
-function cube(x,y,z,dx,dy,dz,color){
+function cube(x,y,z,dx,dy,dz,color,inc){
+    if(!inc){
+        inc="global";
+    }
     if(!color){
         color=[];
         for(let i=0; i<8; ++i){
@@ -350,6 +425,7 @@ function cube(x,y,z,dx,dy,dz,color){
         color=dcolor
     }
     obj.push({
+        name:inc,
         vertex:[
             [x,y,z],[x+dx,y,z],[x,y+dy,z],[x+dx,y+dy,z],
             [x,y,z+dz],[x+dx,y,z+dz],[x,y+dy,z+dz],[x+dx,y+dy,z+dz]
@@ -365,22 +441,39 @@ function cube(x,y,z,dx,dy,dz,color){
         color:color
     });
 }
-function waku(x,y,z,dx,dy,dz,color){
+function waku(x,y,z,dx,dy,dz,color,inc){
     const n=29;
     const f=1-1/n;
-    cube(x,y,z,dx/n,dy/n,dz,color);
-    cube(x+dx*f,y,z,dx/n,dy/n,dz,color);
-    cube(x,y+dy*f,z,dx/n,dy/n,dz,color);
-    cube(x+dx*f,y+dy*f,z,dx/n,dy/n,dz,color);
+    cube(x,y,z,dx/n,dy/n,dz,color,inc);
+    cube(x+dx*f,y,z,dx/n,dy/n,dz,color,inc);
+    cube(x,y+dy*f,z,dx/n,dy/n,dz,color,inc);
+    cube(x+dx*f,y+dy*f,z,dx/n,dy/n,dz,color,inc);
 
-    cube(x,y,z,dx,dy/n,dz/n,color);
-    cube(x,y+dy*f,z,dx,dy/n,dz/n,color);
-    cube(x,y,z+dz*f,dx,dy/n,dz/n,color);
-    cube(x,y+dy*f,z+dz*f,dx,dy/n,dz/n,color);
+    cube(x,y,z,dx,dy/n,dz/n,color,inc);
+    cube(x,y+dy*f,z,dx,dy/n,dz/n,color,inc);
+    cube(x,y,z+dz*f,dx,dy/n,dz/n,color,inc);
+    cube(x,y+dy*f,z+dz*f,dx,dy/n,dz/n,color,inc);
 
-    cube(x,y,z,dx/n,dy,dz/n,color);
-    cube(x+dx*f,y,z,dx/n,dy,dz/n,color);
-    cube(x,y,z+dz*f,dx/n,dy,dz/n,color);
-    cube(x+dx*f,y,z+dz*f,dx/n,dy,dz/n,color);
+    cube(x,y,z,dx/n,dy,dz/n,color,inc);
+    cube(x+dx*f,y,z,dx/n,dy,dz/n,color,inc);
+    cube(x,y,z+dz*f,dx/n,dy,dz/n,color,inc);
+    cube(x+dx*f,y,z+dz*f,dx/n,dy,dz/n,color,inc);
 }
-waku(0,0,0,1,1,1,[1,1,1]);
+waku(m.x,m.y,m.z,1,1,1,[1,1,1],"pointer");
+for(let k=0; k<100; ++k){
+    const d=30;
+    waku(Math.round(d*Math.random()-d/2),Math.round(d*Math.random()-d/2),Math.round(d*Math.random()-d/2),1,1,1)
+}
+function move(vertex,vector){
+    const res=[];
+    for(let v of vertex){
+        res.push([v[0]+vector.x,v[1]+vector.y,v[2]+vector.z]);
+    }
+    return res;
+}
+function behave(){
+    /*for(const o of obj){
+        if(o.name=="waku"){
+        }
+    }*/
+}
